@@ -27,7 +27,7 @@ template <class Item> class bag {
     void loose_insert(const Item &entry);
     void fix_excess(size_t i);
 
-    bool loose_erase(const Item &target);
+    void loose_erase(const Item &target);
     void fix_shortage(size_t i);
     void remove_biggest(Item &removed_enrty);
 
@@ -35,8 +35,10 @@ template <class Item> class bag {
 
     void insert_data(size_t i, const Item &entry);
     void insert_child(size_t i, bag *child);
-    void pull_data(size_t i);
-    void pull_child(size_t i);
+    void remove_data(size_t i);
+    void remove_child(size_t i);
+
+    void merge_child(size_t i);
 };
 
 template <class Item> bag<Item>::bag() {
@@ -48,15 +50,16 @@ template <class Item> bag<Item>::bag() {
 
 template <class Item> bag<Item>::bag(bag &source) {
     size_t i;
-    bag *root_ptr = bag_copy(&source);
-    data_count = root_ptr->data_count;
-    child_count = root_ptr->child_count;
 
+    data_count = source.data_count;
     for (i = 0; i < data_count; i++) {
-        data[i] = root_ptr->data[i];
-        child[i] = root_ptr->child[i];
+        data[i] = source.data[i];
     }
-    child[i] = root_ptr->child[i];
+
+    child_count = source.child_count;
+    for (i = 0; i < child_count; i++) {
+        child[i] = bag_copy(source.child[i]);
+    }
 }
 
 template <class Item> bag<Item>::~bag() { clear(); }
@@ -126,7 +129,7 @@ template <class Item> void bag<Item>::loose_insert(const Item &entry) {
 }
 
 template <class Item> void bag<Item>::fix_excess(size_t i) {
-    assert(i >= 0 && i < child_count);
+    assert(i < child_count);
     assert(child[i]->data_count == MAXIMUM + 1);
 
     bag *splited_child = new bag(); // 분리시킬 자식 서브트리
@@ -155,13 +158,97 @@ template <class Item> void bag<Item>::fix_excess(size_t i) {
     insert_child(i + 1, splited_child); // 분리된 자식을 삽입
 }
 
-template <class Item> bool bag<Item>::erase_one(const Item &target) {}
+template <class Item> bool bag<Item>::erase_one(const Item &target) {
+    if (count(target) == 0)
+        return false;
 
-template <class Item> bool bag<Item>::loose_erase(const Item &target) {}
+    loose_erase(target);
+    if ((data_count == 0) && (child_count == 1)) {
+        bag *child_copy = bag_copy(child[0]); // 자식 노드 deep copy
+        clear();                              // 현재 노드 삭제
 
-template <class Item> void bag<Item>::fix_shortage(size_t i) {}
+        // 자식 노드를 현재 노드로 deep copy
+        data_count = child_copy->data_count;
+        for (size_t i = 0; i < data_count; i++) {
+            data[i] = child_copy->data[i];
+        }
 
-template <class Item> void bag<Item>::remove_biggest(Item &removed_enrty) {}
+        child_count = child_copy->child_count;
+        for (size_t i = 0; i < child_count; i++) {
+            child[i] = bag_copy(child_copy->child[i]);
+        }
+
+        // 자식 노드 삭제
+        child_copy->clear();
+    }
+
+    return true;
+}
+
+template <class Item> void bag<Item>::loose_erase(const Item &target) {
+    size_t index = 0;
+
+    while (data[index] < target && index < data_count) {
+        ++index; // entry를 넣을 만한 data나 child의 index를 찾는다
+    }
+
+    if ((index < data_count) && (data[index] == target)) {
+        if (child_count == 0) {
+            remove_data(index);
+        } else {
+            child[index]->remove_biggest(data[index]);
+            if (child[index]->data_count == MINIMUM - 1)
+                fix_shortage(index);
+        }
+    } else if (child_count != 0) {
+        child[index]->loose_erase(target);
+        if (child[index]->data_count == MINIMUM - 1)
+            fix_shortage(index);
+    }
+}
+
+template <class Item> void bag<Item>::fix_shortage(size_t i) {
+    assert(i < child_count);
+    assert(child[i]->data_count == MINIMUM - 1);
+
+    if (i > 0 && child[i - 1]->data_count > MINIMUM) {
+        /* 왼쪽 서브트리에게 데이터를 하나 받아온다 */
+        size_t last_index = child[i - 1]->data_count - 1;
+        child[i]->insert_data(0, data[i - 1]);
+        data[i - 1] = child[i - 1]->data[last_index];
+        child[i - 1]->remove_data(last_index);
+
+        if (child[i]->child_count != 0) {
+            last_index = child[i - 1]->child_count - 1;
+            child[i]->insert_child(0, child[i - 1]->child[last_index]);
+            child[i - 1]->remove_child(last_index);
+        }
+    } else if ((i < child_count - 1) && (child[i + 1]->data_count > MINIMUM)) {
+        /* 오른쪽 서브트리에게 데이터를 하나 받아온다 */
+        child[i]->insert_data(MINIMUM - 1, data[i]);
+        data[i] = child[i + 1]->data[0];
+        child[i + 1]->remove_data(0);
+
+        if (child[i]->child_count != 0) {
+            child[i]->insert_child(MINIMUM, child[i + 1]->child[0]);
+            child[i + 1]->remove_child(0);
+        }
+    } else if (i > 0) {
+        merge_child(i - 1);
+    } else {
+        merge_child(i);
+    }
+}
+
+template <class Item> void bag<Item>::remove_biggest(Item &removed_enrty) {
+    if (child_count == 0) {
+        removed_enrty = data[--data_count];
+    } else {
+        child[child_count - 1]->remove_biggest(removed_enrty);
+        if (child[child_count - 1]->data_count == MINIMUM - 1)
+            fix_shortage(child_count - 1);
+    }
+}
 
 template <class Item> void bag<Item>::show_contents() { show_contents_rec(0); }
 template <class Item> void bag<Item>::show_contents_rec(size_t depth) {
@@ -197,9 +284,46 @@ template <class Item> void bag<Item>::insert_child(size_t i, bag *child) {
     child_count++;
 }
 
-template <class Item> void bag<Item>::pull_data(size_t i) {}
+template <class Item> void bag<Item>::remove_data(size_t i) {
+    assert(i < data_count);
+    data_count--;
+    for (; i < data_count; i++)
+        data[i] = data[i + 1];
+}
 
-template <class Item> void bag<Item>::pull_child(size_t i) {}
+template <class Item> void bag<Item>::remove_child(size_t i) {
+    assert(i < child_count);
+    child_count--;
+    for (; i < child_count; i++)
+        child[i] = child[i + 1];
+    child[child_count] = NULL;
+}
+
+template <class Item> void bag<Item>::merge_child(size_t i) {
+    assert(i < child_count);
+    size_t append_index = child[i]->data_count;
+    size_t left_index, right_index;
+
+    child[i]->insert_data(append_index, data[i]);
+    remove_data(i);
+
+    for (left_index = append_index + 1; left_index < MAXIMUM; left_index++) {
+        right_index = left_index - append_index - 1;
+        child[i]->insert_data(left_index, child[i + 1]->data[right_index]);
+    }
+
+    if (child[i]->child_count != 0) {
+        append_index = child[i]->child_count;
+        for (left_index = append_index; left_index <= MAXIMUM; left_index++) {
+            right_index = left_index - append_index;
+            child[i]->insert_child(left_index,
+                                   bag_copy(child[i + 1]->child[right_index]));
+        }
+    }
+
+    child[i + 1]->clear();
+    remove_child(i + 1);
+}
 
 template <class Item> void bag<Item>::clear() {
     if (child_count != 0) {
