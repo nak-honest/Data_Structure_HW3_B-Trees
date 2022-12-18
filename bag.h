@@ -12,7 +12,7 @@ template <class Item> class bag {
     bag();
 
     // Copy Constructor
-    bag(bag &source);
+    bag(const bag &source);
 
     // Destructor
     ~bag();
@@ -140,7 +140,7 @@ template <class Item> bag<Item>::bag() {
         child[i] = NULL;
 }
 
-template <class Item> bag<Item>::bag(bag &source) {
+template <class Item> bag<Item>::bag(const bag &source) {
     size_t i;
 
     data_count = source.data_count;
